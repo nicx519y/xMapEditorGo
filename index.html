@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="UTF-8">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="style.css" type="text/css" />
+    <title>xMapEditorGo</title>
+</head>
+<body>
+    <div class="container" >
+        <div class="side" id="side-box" >
+            <ul>
+                <li>
+                    <button id="add-rect-btn" >添加矩形</button>
+                </li>
+            </ul>
+        </div>
+        <div class="main" id="main-box" >
+            <canvas id="render-canvas" ></canvas>
+        </div>
+    </div>
+    <script src="./assembly/wasm_exec.js" ></script>
+    <script src="./dist/main.js"></script>
+</body>
+</html>
