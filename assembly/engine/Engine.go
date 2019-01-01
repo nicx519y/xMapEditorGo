@@ -34,8 +34,7 @@ func (t *Engine) CreateNewBox(x, y, width, height int, styleClass string) {
 	t.styleSheet.AddStyle(styleName, style)
 
 	box := t.boxTree.CreateSimpleBox(x, y, width, height, styleName)
-	box.parent = t.boxTree.GetBoxROOT()
-	t.boxTree.AddBox(box)
+	t.boxTree.AddBox(box, t.boxTree.GetBoxROOT())
 
 	t.render.PaintRectArea(Rect{box.x, box.y, box.width, box.height}, 1)
 	NewBoxHoverAction(box, t)

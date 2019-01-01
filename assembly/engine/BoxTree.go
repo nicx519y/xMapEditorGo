@@ -15,7 +15,6 @@ type Box struct {
 	isCorrect  bool
 	isUsed     bool
 	canBubble  bool   //是否继续冒泡
-	deep       int    //树形深度
 	children   []*Box //子节点 按照z-index排序
 }
 
@@ -43,10 +42,10 @@ func NewBoxTree(width, height int) (tree *BoxTree) {
 	tree = &BoxTree{}
 	tree.boxeslist = make([]*Box, 0)
 	tree.interactionBoxeslist = make([]*Box, 0)
-	boxROOT := Box{0, 0, width, height, "", nil, false, true, true, true, 0, make([]*Box, 0)}
-	tree.AddBox(&boxROOT)
-	interactionROOT := Box{0, 0, width, height, "", nil, false, true, true, true, 0, make([]*Box, 0)}
-	tree.AddInteractionBox(&interactionROOT)
+	boxROOT := Box{0, 0, width, height, "", nil, false, true, true, true, make([]*Box, 0)}
+	tree.AddBox(&boxROOT, nil)
+	interactionROOT := Box{0, 0, width, height, "", nil, false, true, true, true, make([]*Box, 0)}
+	tree.AddInteractionBox(&interactionROOT, nil)
 	return tree
 }
 
@@ -72,18 +71,19 @@ func (t *BoxTree) GetInteractionBoxeslist() []*Box {
 
 // CreateSimpleBox 创建一个简易的Box
 func (t *BoxTree) CreateSimpleBox(x, y, width, height int, styleClass string) *Box {
-	return &Box{x, y, width, height, styleClass, nil, false, true, true, true, 0, make([]*Box, 0)}
+	return &Box{x, y, width, height, styleClass, nil, false, true, true, true, make([]*Box, 0)}
 }
 
 // AddBox 添加一个box到boxtree
-func (t *BoxTree) AddBox(box *Box) {
+func (t *BoxTree) AddBox(box *Box, parent *Box) {
 	boxlist := t.boxeslist
-	t.boxeslist = append(boxlist, box)
-	box.deep = t.getDeep(box)
-	if box.parent != nil {
+	if parent != nil {
+		box.parent = parent
 		children := box.parent.children
 		box.parent.children = append(children, box)
 	}
+	t.boxeslist = append(boxlist, box)
+
 }
 
 // DisableBox 禁用控件
@@ -112,9 +112,28 @@ func (t *BoxTree) EnableBox(box *Box) {
 }
 
 // AddInteractionBox 添加交互层控件
-func (t *BoxTree) AddInteractionBox(box *Box) {
+func (t *BoxTree) AddInteractionBox(box *Box, parent *Box) {
 	list := t.interactionBoxeslist
+	if parent != nil {
+		box.parent = parent
+		children := box.parent.children
+		box.parent.children = append(children, box)
+	}
 	t.interactionBoxeslist = append(list, box)
+
+}
+
+// RemoveInteractionBox 删除交互层控件
+func (t *BoxTree) RemoveInteractionBox(box *Box) {
+	list := t.interactionBoxeslist
+	idx := 0
+	for k, v := range list {
+		if v == box {
+			idx = k
+			break
+		}
+	}
+	t.interactionBoxeslist = append(list[:idx], list[idx+1:]...)
 }
 
 // ClearInteractionBoxes 清空交互层

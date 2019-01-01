@@ -18,7 +18,6 @@ func NewBoxHoverAction(target *Box, engine *Engine) (action *BoxHoverAction) {
 	action.engine = engine
 	//用于交互的展示
 	action.interActionBox = engine.boxTree.CreateSimpleBox(0, 0, 0, 0, "hoverborder")
-	action.interActionBox.parent = engine.boxTree.GetInteractionROOT()
 
 	engine.mouseEvent.AddEventListener(action.target, MOUSEENTER, action.enterHandler)
 	engine.mouseEvent.AddEventListener(action.target, MOUSEOLEAVE, action.leaveHandler)
@@ -33,12 +32,12 @@ func (t *BoxHoverAction) enterHandler(evt MouseEvent) {
 	box.y = target.y
 	box.width = target.width
 	box.height = target.height
-	t.engine.boxTree.AddInteractionBox(t.interActionBox)
+	t.engine.boxTree.AddInteractionBox(t.interActionBox, t.engine.boxTree.GetInteractionROOT())
 	t.engine.render.PaintRectArea(Rect{box.x, box.y, box.width, box.height}, 1)
 }
 
 func (t *BoxHoverAction) leaveHandler(evt MouseEvent) {
 	target := evt.target
-	t.engine.boxTree.ClearInteractionBoxes()
+	t.engine.boxTree.RemoveInteractionBox(t.interActionBox)
 	t.engine.render.PaintRectArea(Rect{target.x, target.y, target.width, target.height}, 1)
 }

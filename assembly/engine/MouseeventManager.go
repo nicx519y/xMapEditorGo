@@ -88,7 +88,7 @@ func (t *MouseEventManager) AddEventListener(target *Box, eventType int, callbac
 
 // RemoveEvents 清空事件
 func (t *MouseEventManager) RemoveEvents(target *Box) {
-	t.eventActionList[target] = make([]*EventAction, 0)
+	delete(t.eventActionList, target)
 }
 
 // DispatherEvents 接收系统事件 分发事件
