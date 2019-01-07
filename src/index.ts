@@ -32,15 +32,16 @@ window['printer'] = function(arr, x, y, width, height) {
 	
 	if(width <= 0 || height <= 0) return;
 	n ++
-	let carr = new Uint32Array(arr);
-	let narr = new Uint8ClampedArray(carr.buffer);
+	// let carr = new Uint8Array(arr);
+	let narr = new Uint8ClampedArray(arr);
 	
 	let imageData = new ImageData(width, height);
 	imageData.data.set(narr)
 
 	ctx.putImageData(imageData, x, y);
 	console.log('Render complete: x: ', x, ' y: ', y, ' total: ', n);
-	carr = null;
+	// carr = null;
 	narr = null;
+
 
 }

@@ -27,15 +27,17 @@ func NewEngine() (engine *Engine) {
 }
 
 // CreateNewBox 创建一个新的控件
-func (t *Engine) CreateNewBox(x, y, width, height int, styleClass string) {
+func (t *Engine) CreateNewBox(x, y, width, height int, angle float64, styleClass string) {
 
 	styleName := time.Now().String()
 	style := t.styleSheet.GetRandStyle()
 	t.styleSheet.AddStyle(styleName, style)
 
-	box := t.boxTree.CreateSimpleBox(x, y, width, height, styleName)
+	box := NewBox(x, y, width, height, styleName)
+	box.angle = angle
 	t.boxTree.AddBox(box, t.boxTree.GetBoxROOT())
 
-	t.render.PaintRectArea(Rect{box.x, box.y, box.width, box.height}, 1)
-	NewBoxHoverAction(box, t)
+	t.render.PaintBox(box, 1)
+
+	BoxStateMachineFactroy(box, t)
 }

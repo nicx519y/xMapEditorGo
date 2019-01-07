@@ -9,6 +9,7 @@ type Box struct {
 	y          int
 	width      int
 	height     int
+	angle      float64
 	styleClass string
 	parent     *Box
 	isSelected bool
@@ -16,6 +17,101 @@ type Box struct {
 	isUsed     bool
 	canBubble  bool   //是否继续冒泡
 	children   []*Box //子节点 按照z-index排序
+}
+
+// NewBox 构造函数
+func NewBox(x, y, width, height int, styleClass string) (box *Box) {
+	box = &Box{}
+	box.x = x
+	box.y = y
+	box.width = width
+	box.height = height
+	box.angle = 0
+	box.styleClass = styleClass
+
+	box.parent = nil
+	box.isCorrect = true
+	box.isSelected = false
+	box.isUsed = true
+	box.canBubble = true
+	box.children = make([]*Box, 0)
+
+	return box
+}
+
+// IsSelected getter 选中状态
+func (t *Box) IsSelected() bool {
+	return t.isSelected
+}
+
+// SetIsSelected setter 选中状态
+func (t *Box) SetIsSelected(status bool) {
+	if status == t.IsSelected() {
+		return
+	}
+	t.isSelected = status
+}
+
+// GetPosition 获取绝对位置坐标
+func (t *Box) GetPosition() (int, int) {
+	b := t
+	x := b.x
+	y := b.y
+	var parent *Box
+	for {
+		parent = b.parent
+		if parent != nil {
+			x += parent.x
+			y += parent.y
+			b = parent
+		} else {
+			break
+		}
+	}
+	return x, y
+}
+
+// GetBounds 获取bounds
+func (t *Box) GetBounds() (bounds Bounds) {
+	bounds = Bounds{}
+
+	px, py := t.GetPosition()
+
+	if t.angle == 0 {
+		bounds.x = px
+		bounds.y = py
+		bounds.width = t.width
+		bounds.height = t.height
+	} else {
+		cx, cy := t.x+t.width/2, t.y+t.height/2
+
+		x1, y1 := px, py
+		x2, y2 := px+t.width, py
+		x3, y3 := px+t.width, py+t.height
+		x4, y4 := px, py+t.height
+
+		rx1, ry1 := srotate(t.angle, x1, y1, cx, cy)
+		rx2, ry2 := srotate(t.angle, x2, y2, cx, cy)
+		rx3, ry3 := srotate(t.angle, x3, y3, cx, cy)
+		rx4, ry4 := srotate(t.angle, x4, y4, cx, cy)
+
+		bounds.x = intMin(rx1, rx2, rx3, rx4) - 2
+		bounds.y = intMin(ry1, ry2, ry3, ry4) - 2
+
+		bounds.width = intMax(rx1, rx2, rx3, rx4) - bounds.x + 2
+		bounds.height = intMax(ry1, ry2, ry3, ry4) - bounds.y + 2
+
+	}
+
+	return bounds
+}
+
+// GetCenterPoint 获取box原点
+func (t *Box) GetCenterPoint() (x int, y int) {
+	px, py := t.GetPosition()
+	x = round(float64(t.x) + float64(t.width)/2)
+	y = round(float64(t.y) + float64(t.height)/2)
+	return x + px, y + py
 }
 
 //Bounds 元素外框
@@ -26,7 +122,7 @@ type Bounds struct {
 	height int
 }
 
-// Position 位置数据
+// Position 位置
 type Position struct {
 	x, y int
 }
@@ -42,10 +138,10 @@ func NewBoxTree(width, height int) (tree *BoxTree) {
 	tree = &BoxTree{}
 	tree.boxeslist = make([]*Box, 0)
 	tree.interactionBoxeslist = make([]*Box, 0)
-	boxROOT := Box{0, 0, width, height, "", nil, false, true, true, true, make([]*Box, 0)}
-	tree.AddBox(&boxROOT, nil)
-	interactionROOT := Box{0, 0, width, height, "", nil, false, true, true, true, make([]*Box, 0)}
-	tree.AddInteractionBox(&interactionROOT, nil)
+	boxROOT := NewBox(0, 0, width, height, "")
+	tree.AddBox(boxROOT, nil)
+	interactionROOT := NewBox(0, 0, width, height, "")
+	tree.AddInteractionBox(interactionROOT, nil)
 	return tree
 }
 
@@ -67,11 +163,6 @@ func (t *BoxTree) GetInteractionROOT() *Box {
 // GetInteractionBoxeslist 获取交互层的控件列表
 func (t *BoxTree) GetInteractionBoxeslist() []*Box {
 	return t.interactionBoxeslist
-}
-
-// CreateSimpleBox 创建一个简易的Box
-func (t *BoxTree) CreateSimpleBox(x, y, width, height int, styleClass string) *Box {
-	return &Box{x, y, width, height, styleClass, nil, false, true, true, true, make([]*Box, 0)}
 }
 
 // AddBox 添加一个box到boxtree
@@ -111,8 +202,23 @@ func (t *BoxTree) EnableBox(box *Box) {
 	}
 }
 
+// IndexOfInteractionBox 返回box 所在的第一个位置索引
+func (t *BoxTree) IndexOfInteractionBox(box *Box) (idx int) {
+	i := -1
+	for idx, val := range t.interactionBoxeslist {
+		if val == box {
+			i = idx
+			break
+		}
+	}
+	return i
+}
+
 // AddInteractionBox 添加交互层控件
 func (t *BoxTree) AddInteractionBox(box *Box, parent *Box) {
+	if t.IndexOfInteractionBox(box) > 0 {
+		return
+	}
 	list := t.interactionBoxeslist
 	if parent != nil {
 		box.parent = parent
@@ -125,15 +231,14 @@ func (t *BoxTree) AddInteractionBox(box *Box, parent *Box) {
 
 // RemoveInteractionBox 删除交互层控件
 func (t *BoxTree) RemoveInteractionBox(box *Box) {
-	list := t.interactionBoxeslist
 	idx := 0
-	for k, v := range list {
-		if v == box {
-			idx = k
-			break
+	for idx < len(t.interactionBoxeslist) {
+		if t.interactionBoxeslist[idx] == box {
+			t.interactionBoxeslist = append(t.interactionBoxeslist[:idx], t.interactionBoxeslist[idx+1:]...)
+			continue
 		}
+		idx++
 	}
-	t.interactionBoxeslist = append(list[:idx], list[idx+1:]...)
 }
 
 // ClearInteractionBoxes 清空交互层
@@ -169,46 +274,18 @@ func (t *BoxTree) ResetIsCorrect(box *Box) {
 	box.isCorrect = !t.hitTestBoxToAllBoxes(box, t.GetAllPrevAndNext(box))
 }
 
-// GetPosition 获取绝对位置
-func (t *BoxTree) GetPosition(box *Box) Position {
-	b := box
-	x := box.x
-	y := box.y
-	var parent *Box
-	for {
-		parent = b.parent
-		if parent != nil {
-			x += parent.x
-			y += parent.y
-			b = parent
-		} else {
-			break
-		}
-	}
-	return Position{x, y}
-}
-
 // IsPointInBox 判断点是否碰撞Box
 func (t *BoxTree) IsPointInBox(x, y int, box *Box) bool {
-	pos := t.GetPosition(box)
+	px, py := box.GetPosition()
 	width := box.width
 	height := box.height
 
-	return x > pos.x && x < pos.x+width && y > pos.y && y < pos.y+height
+	return x > px && x < px+width && y > py && y < py+height
 }
 
 // HitTestBoxToBox hittest
 func (t *BoxTree) HitTestBoxToBox(box1, box2 *Box) bool {
-	return t.hitTestBoundsToBounds(t.getBoxBounds(box1), t.getBoxBounds(box2))
-}
-
-func (t *BoxTree) getBoxBounds(box *Box) Bounds {
-	return Bounds{
-		box.x,
-		box.y,
-		box.width,
-		box.height,
-	}
+	return t.hitTestBoundsToBounds(box1.GetBounds(), box2.GetBounds())
 }
 
 // 找出所有子节点 deep 是否深度遍历

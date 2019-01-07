@@ -23,6 +23,7 @@ html, body {
 	flex: 1 1 auto;
 	height: 100%;
 	position: relative;
+	border: solid 1px #ccc;
 }
 
 ul, li {

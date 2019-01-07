@@ -1,10 +1,16 @@
 package main
 
-import "syscall/js"
+import (
+	"fmt"
+	"syscall/js"
+)
+
+// MouseEventType 鼠标事件类型
+type MouseEventType int
 
 const (
 	// MOUSEDOWN 鼠标事件
-	MOUSEDOWN = iota
+	MOUSEDOWN MouseEventType = iota
 	// MOUSEUP 鼠标事件
 	MOUSEUP
 	// MOUSEMOVE 鼠标事件
@@ -15,40 +21,67 @@ const (
 	DBCLICK
 	// MOUSEENTER 鼠标进入
 	MOUSEENTER
-	// MOUSEOLEAVE 鼠标离开
-	MOUSEOLEAVE
+	// MOUSELEAVE 鼠标离开
+	MOUSELEAVE
+	// DRAG 拖拽
+	DRAG
+	// DRAGSTART 拖拽开始
+	DRAGSTART
+	// DRAGEND 拖拽结束
+	DRAGEND
+)
+
+const (
+	// NONE 无状态
+	NONE = iota
+	// BEFOREDRAG 拖拽之前
+	BEFOREDRAG
+	// DRAGING 拖拽中
+	DRAGING
 )
 
 // MouseEvent 鼠标事件对象
 type MouseEvent struct {
 	target    *Box
-	eventType int
-	mouseX    int
+	eventType MouseEventType
+	mouseX    int //绝对坐标
 	mouseY    int
+	data      *Position
 }
 
 // EventHandler 事件回调函数
 type EventHandler func(evt MouseEvent)
 
-// EventAction 事件行为 描述一个事件行为 事件类型 和 callback
-type EventAction struct {
-	eventType int
+// EventListener 事件行为监听器 描述一个事件行为 事件类型 和 callback
+type EventListener struct {
+	eventType MouseEventType
 	handler   EventHandler
+}
+
+// DragStartState 记录drag的状态
+type DragStartState struct {
+	target    *Box
+	state     int
+	x         int
+	y         int
+	dPosition *Position
 }
 
 // MouseEventManager 鼠标事件管理器
 type MouseEventManager struct {
 	boxTree         *BoxTree
-	eventActionList map[*Box][]*EventAction
+	eventActionList map[*Box][]*EventListener
 	eventTopBox     *Box
+	dragState       *DragStartState
 }
 
 // NewMouseEventManager 构造函数
 func NewMouseEventManager(boxTree *BoxTree) (manager *MouseEventManager) {
 	manager = &MouseEventManager{}
-	manager.eventActionList = make(map[*Box][]*EventAction)
+	manager.eventActionList = make(map[*Box][]*EventListener)
 	manager.eventTopBox = nil
 	manager.boxTree = boxTree
+	manager.dragState = &DragStartState{}
 
 	//系统鼠标事件接收
 	sysMouseHandler := js.NewCallback(func(args []js.Value) {
@@ -76,14 +109,31 @@ func NewMouseEventManager(boxTree *BoxTree) (manager *MouseEventManager) {
 }
 
 // AddEventListener 添加事件监听器
-func (t *MouseEventManager) AddEventListener(target *Box, eventType int, callback EventHandler) {
+func (t *MouseEventManager) AddEventListener(target *Box, eventType MouseEventType, callback EventHandler) (listener *EventListener) {
 	_, ok := t.eventActionList[target]
 	if !ok {
-		t.eventActionList[target] = make([]*EventAction, 0)
+		t.eventActionList[target] = make([]*EventListener, 0)
 	}
-	action := EventAction{eventType, callback}
+	listener = &EventListener{eventType, callback}
 	targetActions := t.eventActionList[target]
-	t.eventActionList[target] = append(targetActions, &action)
+	t.eventActionList[target] = append(targetActions, listener)
+	return listener
+}
+
+// RemoveEventListener  删除时间监听器
+func (t *MouseEventManager) RemoveEventListener(target *Box, listener *EventListener) {
+	_, ok := t.eventActionList[target]
+	if !ok {
+		return
+	}
+	idx := 0
+	for idx < len(t.eventActionList[target]) {
+		if t.eventActionList[target][idx] == listener {
+			t.eventActionList[target] = append(t.eventActionList[target][:idx], t.eventActionList[target][idx+1:]...)
+			continue
+		}
+		idx++
+	}
 }
 
 // RemoveEvents 清空事件
@@ -97,35 +147,55 @@ func (t *MouseEventManager) dispatherEvents(eventType string, mx, my int) {
 	list := t.getBubblingList(mx, my)
 	bubblingLen := len(list)
 
-	// mouseenter and mouseleave
-	// if (bubblingLen == 0 && t.eventTopBox != nil) || list[bubblingLen-1] != t.eventTopBox {
-	// 	t.dispatchBoxEvents(t.eventTopBox, MOUSEOLEAVE, mx, my)
-	// }
-	root := t.boxTree.GetBoxROOT()
-	if bubblingLen > 0 && t.eventTopBox != list[bubblingLen-1] {
-		if t.eventTopBox != nil && t.eventTopBox != root {
-			t.dispatchBoxEvents(t.eventTopBox, MOUSEOLEAVE, mx, my)
-		}
-		t.eventTopBox = list[bubblingLen-1]
-		if t.eventTopBox != root {
-			t.dispatchBoxEvents(t.eventTopBox, MOUSEENTER, mx, my)
-		}
-	}
-
 	if bubblingLen <= 0 {
 		return
 	}
 
-	etype := 0
+	root := t.boxTree.GetBoxROOT()
+
+	// MouseEnter和MouseLeave事件
+	if bubblingLen > 0 && t.eventTopBox != list[bubblingLen-1] {
+		if t.eventTopBox != nil && t.eventTopBox != root {
+			t.dispatchBoxEvents(t.eventTopBox, MOUSELEAVE, mx, my, nil)
+		}
+		t.eventTopBox = list[bubblingLen-1]
+		if t.eventTopBox != root {
+			t.dispatchBoxEvents(t.eventTopBox, MOUSEENTER, mx, my, nil)
+		}
+	}
+
+	var etype MouseEventType
+	dragState := t.dragState
 	switch eventType {
 	case "mousedown":
 		etype = MOUSEDOWN
+		px, py := list[bubblingLen-1].GetPosition()
+		//如果存在冒泡队列，取最上面一个作为拖拽对象记录
+		dragState.target = list[bubblingLen-1]
+		dragState.state = BEFOREDRAG
+		dragState.x = mx
+		dragState.y = my
+		dragState.dPosition = &Position{mx - px, my - py}
 		break
 	case "mouseup":
 		etype = MOUSEUP
+		fmt.Println("mouseup", dragState.state)
+		if dragState.state == DRAGING {
+			t.dispatchBoxEvents(dragState.target, DRAGEND, mx, my, dragState.dPosition)
+		}
+		if dragState.state != NONE {
+			dragState.state = NONE
+		}
 		break
 	case "mousemove":
 		etype = MOUSEMOVE
+		if dragState.state == BEFOREDRAG {
+			dragState.state = DRAGING
+			t.dispatchBoxEvents(dragState.target, DRAGSTART, dragState.x, dragState.y, dragState.dPosition)
+		}
+		if dragState.state == DRAGING {
+			t.dispatchBoxEvents(dragState.target, DRAG, mx, my, dragState.dPosition)
+		}
 		break
 	case "click":
 		etype = CLICK
@@ -136,7 +206,7 @@ func (t *MouseEventManager) dispatherEvents(eventType string, mx, my int) {
 	}
 	// fmt.Println("事件类型：", eventType, "；冒泡序列：", list)
 	for _, box := range list {
-		t.dispatchBoxEvents(box, etype, mx, my)
+		t.dispatchBoxEvents(box, etype, mx, my, nil)
 		//如果禁止冒泡 跳出循环
 		if !box.canBubble {
 			break
@@ -179,14 +249,14 @@ func (t *MouseEventManager) getBubblingList(x, y int) []*Box {
 }
 
 //分发一个元素的事件
-func (t *MouseEventManager) dispatchBoxEvents(target *Box, eventType, mx, my int) {
+func (t *MouseEventManager) dispatchBoxEvents(target *Box, eventType MouseEventType, mx, my int, data *Position) {
 	_, ok := t.eventActionList[target]
 	if !ok {
 		return
 	}
 	for _, action := range t.eventActionList[target] {
 		if eventType == action.eventType {
-			action.handler(MouseEvent{target, eventType, mx, my})
+			action.handler(MouseEvent{target, eventType, mx, my, data})
 		}
 	}
 }

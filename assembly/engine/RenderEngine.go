@@ -2,9 +2,12 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"syscall/js"
 	"time"
+
+	"github.com/fogleman/gg"
 )
 
 const (
@@ -14,19 +17,19 @@ const (
 	INTERACTION
 )
 
-// Viewport 视口
-type Viewport struct {
-	x      int     //视口起点
-	y      int     //视口起点
-	width  int     //视口宽度
-	height int     //视口高度
-	zoom   float64 //缩放比
-	pixels []uint32
-}
-
-//Rect 矩形
+// Rect 矩形
 type Rect struct {
 	x, y, width, height int
+}
+
+// Viewport 渲染视口
+type Viewport struct {
+	x       int
+	y       int
+	width   int
+	height  int
+	zoom    float64
+	context *gg.Context
 }
 
 // RenderEngine 渲染器
@@ -38,54 +41,58 @@ type RenderEngine struct {
 
 // NewRenderEngine 渲染器构造函数
 func NewRenderEngine(boxTree *BoxTree, styleSheet *StyleSheetManager) (engine *RenderEngine) {
-	vp := Viewport{0, 0, 0, 0, 1, make([]uint32, 0)}
 	engine = &RenderEngine{}
-	engine.vp = &vp
 	engine.boxTree = boxTree
 	engine.styleSheet = styleSheet
-
 	return engine
 }
 
-// GetViewport 获取viewport
-func (t *RenderEngine) GetViewport() *Viewport {
-	return t.vp
+// PaintBox 简易方法 绘制一个控件
+func (t *RenderEngine) PaintBox(box *Box, zoom float64) {
+	bounds := box.GetBounds()
+	// fmt.Println(bounds)
+	go t.PaintRectArea(&Rect{bounds.x, bounds.y, bounds.width, bounds.height}, zoom)
 }
 
-// ClearViewport 清空viewport数据
-func (t *RenderEngine) ClearViewport() {
-	t.vp.width = 0
-	t.vp.height = 0
-	t.vp.pixels = make([]uint32, 0)
+// PaintRectArea 绘制一个区域
+func (t *RenderEngine) PaintRectArea(rect *Rect, zoom float64) {
+	go t.paintRect(rect, zoom)
+}
+
+// PaintToScreen 绘制到屏幕
+func (t *RenderEngine) PaintToScreen() {
+	//绘制
+	tvp := t.vp
+	c := tvp.context
+	rgba := c.Image().(*image.RGBA)
+	width := c.Width()
+	height := c.Height()
+
+	print := js.NewCallback(func(args []js.Value) {
+		if width > 0 && height > 0 {
+			js.Global().Get("window").Call("printer", js.TypedArrayOf(rgba.Pix), js.ValueOf(tvp.x), js.ValueOf(tvp.y), js.ValueOf(width), js.ValueOf(height))
+		}
+	})
+	js.Global().Call("requestAnimationFrame", print)
+
 }
 
 // PaintRectArea 绘制一个矩形区域 矩形是缩放前的坐标
-func (t *RenderEngine) PaintRectArea(rect Rect, zoom float64) {
+func (t *RenderEngine) paintRect(rect *Rect, zoom float64) {
+	t.vp = &Viewport{}
 	vp := t.vp
-	vp.x = int(math.Ceil(float64(rect.x) * zoom))
-	vp.y = int(math.Ceil(float64(rect.y) * zoom))
-	vp.width = int(math.Ceil(float64(rect.width) * zoom))
-	vp.height = int(math.Ceil(float64(rect.height) * zoom))
+	vp.x = round(math.Ceil(float64(rect.x) * zoom))
+	vp.y = round(math.Ceil(float64(rect.y) * zoom))
+	vp.width = round(math.Ceil(float64(rect.width) * zoom))
+	vp.height = round(math.Ceil(float64(rect.height) * zoom))
 	vp.zoom = zoom
-	vp.pixels = make([]uint32, vp.width*vp.height, vp.width*vp.height)
+	vp.context = gg.NewContext(vp.width, vp.height)
 	tm := time.Now()
 	//填写viewport数据
 	t.paintViewport()
 	//绘制到屏幕
 	t.PaintToScreen()
 	fmt.Println("渲染数据准备：", time.Now().Sub(tm))
-}
-
-// PaintToScreen 绘制到屏幕
-func (t *RenderEngine) PaintToScreen() {
-	//绘制
-	tvp := Viewport{t.vp.x, t.vp.y, t.vp.width, t.vp.height, t.vp.zoom, t.vp.pixels}
-	print := js.NewCallback(func(args []js.Value) {
-		if tvp.width > 0 && tvp.height > 0 {
-			js.Global().Get("window").Call("printer", js.TypedArrayOf(tvp.pixels), js.ValueOf(tvp.x), js.ValueOf(tvp.y), js.ValueOf(tvp.width), js.ValueOf(tvp.height))
-		}
-	})
-	js.Global().Call("requestAnimationFrame", print)
 }
 
 // 绘制一个 视口
@@ -142,63 +149,33 @@ func (t *RenderEngine) renderBox(box *Box, layer int) {
 		return
 	}
 
-	//获取绝对坐标
-	position := t.boxTree.GetPosition(box)
 	//绘制
-	rect := Rect{position.x, position.y, box.width, box.height}
-	t.fillRect(rect, t.styleSheet.GetStyle(box.styleClass))
+	t.drawBox(box)
 
 	//递归 如果此box是容器，继续绘制里面的元素
 	t.renderBoxesInContainer(box, layer)
 }
 
 // 按照物理尺寸填充一个矩形区域
-func (t *RenderEngine) fillRect(rect Rect, style *Style) {
+func (t *RenderEngine) drawBox(box *Box) {
+	style := t.styleSheet.GetStyle(box.styleClass)
 
-	var mrect Rect
-	viewport := t.vp
+	x := box.x - t.vp.x
+	y := box.y - t.vp.y
+	// cx, cy := box.GetCenterPoint()
+	cx, cy := box.width/2+box.x, box.height/2+box.y
+	cx -= t.vp.x
+	cy -= t.vp.y
 
-	//如果边框粗细为0 并且背景透明 直接返回
-	if style.borderWeight <= 0 && style.bgTransparent == true {
-		return
-	}
-
-	mrect.x = int(math.Ceil(float64(rect.x) * viewport.zoom))
-	mrect.y = int(math.Ceil(float64(rect.y) * viewport.zoom))
-	mrect.width = int(math.Ceil(float64(rect.width) * viewport.zoom))
-	mrect.height = int(math.Ceil(float64(rect.height) * viewport.zoom))
-	// 求矩形和视口的交集用于绘制
-	nrect := t.intersectionRect(mrect)
-
-	vpx1 := nrect.x
-	vpy1 := nrect.y
-	vpx2 := vpx1 + nrect.width
-	vpy2 := vpy1 + nrect.height
-
-	vbx1 := vpx1 + style.borderWeight
-	vbx2 := vpx2 - style.borderWeight
-	vby1 := vpy1 + style.borderWeight
-	vby2 := vpy2 - style.borderWeight
-
-	boc := style.borderColor
-	bgc := style.backgroundColor
-	bgt := style.bgTransparent
-
-	for i := vpy1; i < vpy2; i++ {
-		for j := vpx1; j < vpx2; j++ {
-			if i >= vby1 && i < vby2 && j >= vbx1 && j < vbx2 {
-				if !bgt {
-					// 绘制底色
-					viewport.pixels[j+i*viewport.width] = bgc // a b g r
-				} else {
-					continue
-				}
-			} else {
-				// 绘制边框
-				viewport.pixels[j+i*viewport.width] = boc // a b g r
-			}
-		}
-	}
+	// fmt.Println(cx, cy)
+	context := t.vp.context
+	context.Push()
+	// context.RotateAbout(math.Pi/4, 100, 100)
+	context.SetFillStyle(gg.NewSolidPattern(style.backgroundColor))
+	context.RotateAbout(box.angle, float64(cx), float64(cy))
+	context.DrawRectangle(float64(x), float64(y), float64(box.width), float64(box.height))
+	context.Fill()
+	context.Pop()
 }
 
 //获取跟视口的交集

@@ -1,14 +1,15 @@
 package main
 
 import (
+	"image/color"
 	"math/rand"
 )
 
 // Style 样式
 type Style struct {
-	backgroundColor uint32
+	backgroundColor color.Color
 	bgTransparent   bool
-	borderColor     uint32
+	borderColor     color.Color
 	borderWeight    int
 }
 
@@ -20,7 +21,7 @@ type StyleSheetManager struct {
 // NewStyleSheetManager 构造函数
 func NewStyleSheetManager() (styleSheet *StyleSheetManager) {
 	styleSheet = &StyleSheetManager{make(map[string]*Style)}
-	hoverborder := &Style{0x00000000, true, 0xffff0000, 2}
+	hoverborder := &Style{color.RGBA{0, 0, 255, 255}, true, color.RGBA{0, 0, 255, 255}, 1}
 	styleSheet.AddStyle("hoverborder", hoverborder)
 	return styleSheet
 }
@@ -46,5 +47,5 @@ func (t *StyleSheetManager) GetStyle(key string) *Style {
 
 // GetRandStyle 随机样式 用于测试
 func (t *StyleSheetManager) GetRandStyle() *Style {
-	return &Style{uint32(rand.Intn(0xffffffff)), false, 0xffffffff, 0}
+	return &Style{color.RGBA{uint8(rand.Intn(255)), uint8(rand.Intn(255)), uint8(rand.Intn(255)), 255}, false, nil, 0}
 }
